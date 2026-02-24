@@ -834,6 +834,18 @@ const char *BaseDevice::getDeviceName() const
     return d->deviceName.data();
 }
 
+void BaseDevice::setDeviceNickname(const char *nick)
+{
+    D_PTR(BaseDevice);
+    d->deviceNickname = nick;
+}
+
+const char *BaseDevice::getDeviceNickname() const
+{
+    D_PTR(const BaseDevice);
+    return d->deviceNickname.data();
+}
+
 bool BaseDevice::isDeviceNameMatch(const char *otherName) const
 {
     D_PTR(const BaseDevice);

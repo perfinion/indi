@@ -221,6 +221,21 @@ class BaseDevice
         /** @return Returns the device name */
         const char *getDeviceName() const;
 
+        /** @brief Set the device nickname
+         *  @param nick new device nickname
+         *
+         *  If nick is already prefixed with the defaultname, it will be removed.
+         */
+        void setDeviceNickname(const char *nick);
+
+        /** @return Returns the device nickname
+         *
+         *  The device nickname is name set by the user and persistent (usually based off the device serial number)
+         *  The nickname of a device is the part after the default name.
+         *  Ie a device name is 'DefaultName Nickname'
+         */
+        const char *getDeviceNickname() const;
+
         /** @brief Check that the device name matches the argument. **/
         bool isDeviceNameMatch(const char *otherName) const;
 

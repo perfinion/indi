@@ -178,6 +178,7 @@ class BaseDevicePrivate
     public:
         BaseDevice self {make_shared_weak(this)}; // backward compatible (for operators as pointer)
         std::string deviceName;
+        std::string deviceNickname;
         BaseDevice::Properties pAll;
         std::map<std::string, WatchDetails> watchPropertyMap;
         LilXmlParser xmlParser;
