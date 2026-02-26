@@ -233,50 +233,102 @@ static std::string GetHomeDirectory()
  * </INDINicknames>
  */
 
+#define NICKNAME_FILE "/.indi/Nicknames.xml"
 #define NICK_ROOT "INDINicknames"
 #define NICK_ENTRY "nickname"
 #define NICK_ATTR_DRV "driver"
 #define NICK_ATTR_ID "identifier"
 
-void loadINDINicknames()
+const char *LoadINDINicknamesXML()
 {
     const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
-    mNicknames.clear();
+    // mNicknames.clear(); // TODO
 
-    LilXML *xmlHandle = newLilXML();
-    XMLEle *rootXmlNode = nullptr;
-    char errorMessage[512] = {0};
-    FILE *file = fopen(filename.c_str(), "r");
-    if (file)
+    LilXML *lp = newLilXML();
+    XMLEle *NickXmlRoot = nullptr;
+    static char errmsg[512];
+    memset(errmsg, 0, sizeof(errmsg)); // Clear each run
+    FILE *fp = fopen(filename.c_str(), "r");
+    if (fp)
     {
-        rootXmlNode = readXMLFile(file, xmlHandle, errorMessage);
-        fclose(file);
+        NickXmlRoot = readXMLFile(fp, lp, errmsg);
+        fclose(fp);
     }
-    delLilXML(xmlHandle);
+    delLilXML(lp);
 
-    if (rootXmlNode == nullptr)
-        return;
+    if (!NickXmlRoot || errmsg[0]) {
+        return errmsg;
+    }
 
-    XMLEle *currentXmlNode = nextXMLEle(rootXmlNode, 1);
-    while (currentXmlNode)
-    {
-        const char *id = findXMLAttValu(currentXmlNode, NICK_ATTR_ID);
-        if (id != nullptr)
+    if (strcmp(tagXMLEle(NickXmlRoot), NICK_ROOT) != 0) {
+        delXMLEle(NickXmlRoot);
+        return 0;
+    }
+
+    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1); // <INDINicknames> tag
+
+    if (!nickxml) {
+        return 0;
+    }
+
+    if (!strcmp(tagXMLEle(nickxml), NICK_ROOT)) {
+        delXMLEle(nickxml);
+        return 0;
+    }
+
+    for (; nickxml != NULL; nickxml = nextXMLEle(NickXmlRoot, 0)) {
+        // Skip non <nickname> tags
+        if (strcmp(tagXMLEle(nickxml), NICK_ENTRY))
+            continue;
+
+        // find driver= attr
+        const char *drv = findXMLAttValu(nickxml, NICK_ATTR_DRV);
+        // skip other drivers
+        if (!drv || strcmp(drv, getDefaultName()))
+            continue;
+
+        // find identifier= attr
+        const char *pId = findXMLAttValu(nickxml, NICK_ATTR_ID);
+        const char *pVal = pcdataXMLEle(nickxml);
+
+        if (pId && pVal)
         {
-            std::string name = pcdataXMLEle(currentXmlNode);
-            if (!name.empty())
-                trim(name);
-            if (!name.empty())
-                mNicknames[id] = name;
+            std::string sId{pId}, sVal{pVal}; // deep copy
+            trim(sId);
+            trim(sVal);
+            if (!sId.empty() && !sVal.empty())
+                // mNicknames[sId] = sVal; // TODO
         }
-        currentXmlNode = nextXMLEle(rootXmlNode, 0);
     }
 
-    delXMLEle(rootXmlNode);
+    delXMLEle(nickxml);
+    delXMLEle(NickXmlRoot);
+
+    return 0;
 }
 
-void saveNicknames()
+const char *SaveINDINicknamesXML()
 {
+    const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
+
+    LilXML *lp = newLilXML();
+    XMLEle *NickXmlRoot = nullptr;
+    XMLEle *nickxml = nullptr;
+    char errmsg[512] = {0};
+    FILE *fp = fopen(filename.c_str(), "r");
+    if (fp)
+    {
+        NickXmlRoot = readXMLFile(fp, lp, errmsg);
+        fclose(fp);
+    }
+
+    if (!NickXmlRoot) // empty file, make new root node
+        NickXmlRoot = addXMLEle(nullptr, NICK_ROOT);
+
+    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1); // <INDINicknames> tag
+
+    if (!nickxml)
+        return "Empty Nickname file";
     const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
     XMLEle *rootXmlNode = nullptr;
     XMLEle *oneElement = nullptr;
@@ -295,6 +347,8 @@ void saveNicknames()
     prXMLEle(file, rootXmlNode, 0);
     fclose(file);
     delXMLEle(rootXmlNode);
+
+    delLilXML(lp);
 }
 
 } // namespace
