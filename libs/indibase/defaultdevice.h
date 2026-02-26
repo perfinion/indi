@@ -143,6 +143,9 @@ class DefaultDevice : public ParentDevice
         /** \brief Add Polling period control to the driver */
         void addPollPeriodControl();
 
+        /** \brief Add Nickname text property to the driver */
+        void addNicknameControl();
+
     public:
         /** \brief Set all properties to IDLE state */
         void resetProperties();
@@ -633,9 +636,20 @@ class DefaultDevice : public ParentDevice
         /** @brief syncDriverInfo sends the current driver information to the client. */
         void syncDriverInfo();
 
-
         /** \return Default name of the device. */
         virtual const char *getDefaultName() = 0;
+
+        /** @brief Set the device nickname
+         *  @param nick new device nickname
+         *
+         *  When a nickname is set, the full device name will be "DefaultName
+         *  Nickname". Setting the nickname will also set the device name. If
+         *  nick is already prefixed with the defaultname, it will be removed.
+         */
+        void setDeviceNickname(const char *nick);
+
+        /** \return Nickname for the device */
+        const char *getDeviceNickname();
 
     private:
         // Connection Plugins

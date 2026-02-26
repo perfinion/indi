@@ -25,6 +25,7 @@
 #include <cstring>
 #include <list>
 #include <mutex>
+#include <string>
 
 #include "indipropertyswitch.h"
 #include "indipropertynumber.h"
@@ -78,6 +79,8 @@ class DefaultDevicePrivate: public ParentDevicePrivate
         static std::recursive_mutex             devicesLock;
 
         WatchDeviceProperty watchDevice;
+
+        std::string deviceNickname{};
 };
 
 }
