@@ -155,6 +155,7 @@ list(APPEND ${PROJECT_NAME}_SOURCES
     indifocuserinterface.cpp
     indigpsinterface.cpp
     indiweatherinterface.cpp
+    imusensorfusion.cpp
     indiimuinterface.cpp
     indifocuser.cpp
     indirotator.cpp
@@ -224,6 +225,7 @@ list(APPEND ${PROJECT_NAME}_HEADERS
     indiweather.h
     indilogger.h
     indicontroller.h
+    imusensorfusion.h
     indiimuinterface.h
     indiimu.h
     indiusbdevice.h
