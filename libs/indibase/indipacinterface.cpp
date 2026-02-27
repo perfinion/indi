@@ -1,6 +1,7 @@
 /*
     PAC Interface (Polar Alignment Correction)
     Copyright (C) 2026 Joaquin Rodriguez (jrhuerta@gmail.com)
+    Copyright (C) 2026 Jasem Mutlaq (mutlaqja@ikarustech.com)
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -46,6 +47,14 @@ void PACInterface::initProperties(const char *group)
     CorrectionStatusLP[0].fill("STATUS", "Status", IPS_IDLE);
     CorrectionStatusLP.fill(m_DefaultDevice->getDeviceName(), "ALIGNMENT_CORRECTION_STATUS", "Correction Status",
                             group, IPS_IDLE);
+
+    // Manual adjustment property.
+    // AZ step: positive = East, negative = West.
+    // ALT step: positive = North (increase altitude), negative = South (decrease altitude).
+    ManualAdjustmentNP[MANUAL_AZ].fill("MANUAL_AZ_STEP", "Azimuth Step (deg)", "%.4f", -10, 10, 0.1, 0);
+    ManualAdjustmentNP[MANUAL_ALT].fill("MANUAL_ALT_STEP", "Altitude Step (deg)", "%.4f", -10, 10, 0.1, 0);
+    ManualAdjustmentNP.fill(m_DefaultDevice->getDeviceName(), "PAC_MANUAL_ADJUSTMENT", "Manual Adjustment",
+                            group, IP_RW, 0, IPS_IDLE);
 }
 
 bool PACInterface::updateProperties()
@@ -55,19 +64,21 @@ bool PACInterface::updateProperties()
         m_DefaultDevice->defineProperty(CorrectionErrorNP);
         m_DefaultDevice->defineProperty(CorrectionSP);
         m_DefaultDevice->defineProperty(CorrectionStatusLP);
+        m_DefaultDevice->defineProperty(ManualAdjustmentNP);
     }
     else
     {
         m_DefaultDevice->deleteProperty(CorrectionErrorNP);
         m_DefaultDevice->deleteProperty(CorrectionSP);
         m_DefaultDevice->deleteProperty(CorrectionStatusLP);
+        m_DefaultDevice->deleteProperty(ManualAdjustmentNP);
     }
 
     return true;
 }
 
 bool PACInterface::processSwitch(const char *dev, const char *name,
-                                                  ISState *states, char *names[], int n)
+                                 ISState *states, char *names[], int n)
 {
     INDI_UNUSED(dev);
 
@@ -119,7 +130,7 @@ bool PACInterface::processSwitch(const char *dev, const char *name,
 }
 
 bool PACInterface::processNumber(const char *dev, const char *name,
-                                                  double values[], char *names[], int n)
+                                 double values[], char *names[], int n)
 {
     INDI_UNUSED(dev);
 
@@ -131,18 +142,77 @@ bool PACInterface::processNumber(const char *dev, const char *name,
         return true;
     }
 
+    if (ManualAdjustmentNP.isNameMatch(name))
+    {
+        ManualAdjustmentNP.update(values, names, n);
+
+        const double azStep  = ManualAdjustmentNP[MANUAL_AZ].getValue();
+        const double altStep = ManualAdjustmentNP[MANUAL_ALT].getValue();
+
+        IPState azState  = IPS_OK;
+        IPState altState = IPS_OK;
+
+        if (azStep != 0.0)
+            azState = MoveAZ(azStep);
+
+        if (altStep != 0.0)
+            altState = MoveALT(altStep);
+
+        // Report the worst state of the two axes.
+        if (azState == IPS_ALERT || altState == IPS_ALERT)
+            ManualAdjustmentNP.setState(IPS_ALERT);
+        else if (azState == IPS_BUSY || altState == IPS_BUSY)
+            ManualAdjustmentNP.setState(IPS_BUSY);
+        else
+            ManualAdjustmentNP.setState(IPS_OK);
+
+        ManualAdjustmentNP.apply();
+        return true;
+    }
+
     return false;
 }
 
+// ---------------------------------------------------------------------------
+// Default virtual implementations
+// ---------------------------------------------------------------------------
+
 IPState PACInterface::StartCorrection(double azError, double altError)
 {
-    INDI_UNUSED(azError);
-    INDI_UNUSED(altError);
-    return IPS_ALERT;
+    // Translate polar-alignment errors into physical movement commands.
+    //
+    // Sign convention for errors (matches KStars PAA convention):
+    //   azError  > 0 → polar axis displaced East  → correct by moving West → MoveAZ(-azError)
+    //   azError  < 0 → polar axis displaced West  → correct by moving East → MoveAZ(-azError)
+    //   altError > 0 → polar axis too high         → correct by moving South → MoveALT(-altError)
+    //   altError < 0 → polar axis too low          → correct by moving North → MoveALT(-altError)
+    //
+    // Drivers may override this method for a single combined hardware command.
+
+    const IPState azState  = MoveAZ(-azError);
+    const IPState altState = MoveALT(-altError);
+
+    if (azState == IPS_ALERT || altState == IPS_ALERT)
+        return IPS_ALERT;
+    if (azState == IPS_BUSY || altState == IPS_BUSY)
+        return IPS_BUSY;
+    return IPS_OK;
 }
 
 IPState PACInterface::AbortCorrection()
 {
+    return IPS_ALERT;
+}
+
+IPState PACInterface::MoveAZ(double degrees)
+{
+    INDI_UNUSED(degrees);
+    return IPS_ALERT;
+}
+
+IPState PACInterface::MoveALT(double degrees)
+{
+    INDI_UNUSED(degrees);
     return IPS_ALERT;
 }
 

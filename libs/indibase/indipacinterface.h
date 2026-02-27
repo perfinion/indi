@@ -1,6 +1,7 @@
 /*
     PAC Interface (Polar Alignment Correction)
-Copyright (C) 2026 Joaquin Rodriguez (jrhuerta@gmail.com)
+    Copyright (C) 2026 Joaquin Rodriguez (jrhuerta@gmail.com)
+    Copyright (C) 2026 Jasem Mutlaq (mutlaqja@ikarustech.com)
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -36,6 +37,23 @@ Copyright (C) 2026 Joaquin Rodriguez (jrhuerta@gmail.com)
  * ALIGNMENT_CORRECTION switch property.  The device applies the mechanical correction and
  * reports progress through the ALIGNMENT_CORRECTION_STATUS light property.
  *
+ * In addition to fully-automated correction, the interface exposes manual step controls via the
+ * PAC_MANUAL_ADJUSTMENT number property.  A client can nudge the mount by a signed number of
+ * degrees on either axis independently:
+ *
+ * \b Sign convention for manual adjustments:
+ *   - Azimuth (PAC_MANUAL_AZ_STEP):  positive value → East,  negative value → West
+ *   - Altitude (PAC_MANUAL_ALT_STEP): positive value → North, negative value → South
+ *
+ * \b Relationship between errors and corrections:
+ *   - A positive azimuth error means the polar axis is displaced to the East, so the correction
+ *     moves the mount West: MoveAZ(−azError).
+ *   - A positive altitude error means the polar axis is too high, so the correction moves the
+ *     mount South: MoveALT(−altError).
+ *
+ * The default implementation of StartCorrection() uses MoveAZ() and MoveALT() so that any
+ * driver implementing those two primitives automatically gains automated correction.
+ *
  * The interface can be embedded in any device (typically a mount) via multiple inheritance,
  * or used as the basis of a standalone alignment-correction device.
  *
@@ -54,16 +72,25 @@ namespace INDI
 class PACInterface
 {
     public:
+        /** Indices for the CorrectionSP switch property. */
         enum
         {
             CORRECTION_START,
             CORRECTION_ABORT
         };
 
+        /** Indices for the CorrectionErrorNP number property. */
         enum
         {
             ERROR_AZ,
             ERROR_ALT
+        };
+
+        /** Indices for the ManualAdjustmentNP number property. */
+        enum
+        {
+            MANUAL_AZ,   ///< Azimuth step in degrees: positive = East, negative = West
+            MANUAL_ALT   ///< Altitude step in degrees: positive = North, negative = South
         };
 
     protected:
@@ -71,9 +98,17 @@ class PACInterface
         virtual ~PACInterface() = default;
 
         /**
-         * @brief Start an alignment correction.  Must be implemented by the driver.
-         * @param azError  Azimuth error in degrees (positive = clockwise when seen from above).
-         * @param altError Altitude error in degrees (positive = too high).
+         * @brief Start an automated alignment correction.
+         *
+         * The default implementation translates the errors into movement commands:
+         *   - Calls MoveAZ(−azError)  (positive azError = eastward polar-axis error → West correction)
+         *   - Calls MoveALT(−altError) (positive altError = altitude too high → South correction)
+         *
+         * Drivers may override this method to perform the correction in a single hardware command
+         * rather than relying on the individual MoveAZ / MoveALT primitives.
+         *
+         * @param azError  Azimuth error in degrees (positive = polar axis displaced East).
+         * @param altError Altitude error in degrees (positive = polar axis too high).
          * @return IPS_OK if the correction completed immediately,
          *         IPS_BUSY if it is in progress (driver must update CorrectionStatusLP when done),
          *         IPS_ALERT on error.
@@ -85,6 +120,32 @@ class PACInterface
          * @return IPS_OK if aborted successfully, IPS_ALERT on error.
          */
         virtual IPState AbortCorrection();
+
+        /**
+         * @brief Move the azimuth axis by the given number of degrees.
+         *
+         * Sign convention: positive = East, negative = West.
+         *
+         * The default implementation returns IPS_ALERT.  Drivers that support motorised
+         * azimuth adjustment should override this method.
+         *
+         * @param degrees Signed step size in degrees.
+         * @return IPS_OK if completed immediately, IPS_BUSY if in progress, IPS_ALERT on error.
+         */
+        virtual IPState MoveAZ(double degrees);
+
+        /**
+         * @brief Move the altitude axis by the given number of degrees.
+         *
+         * Sign convention: positive = North (increase altitude), negative = South (decrease altitude).
+         *
+         * The default implementation returns IPS_ALERT.  Drivers that support motorised
+         * altitude adjustment should override this method.
+         *
+         * @param degrees Signed step size in degrees.
+         * @return IPS_OK if completed immediately, IPS_BUSY if in progress, IPS_ALERT on error.
+         */
+        virtual IPState MoveALT(double degrees);
 
         /**
          * @brief Initialize alignment correction properties.
@@ -109,6 +170,14 @@ class PACInterface
         INDI::PropertySwitch CorrectionSP {2};
         INDI::PropertyNumber CorrectionErrorNP {2};
         INDI::PropertyLight  CorrectionStatusLP {1};
+
+        /**
+         * Manual adjustment property.
+         * Element [MANUAL_AZ]  : azimuth step in degrees  (+East / −West).
+         * Element [MANUAL_ALT] : altitude step in degrees (+North / −South).
+         * Writing a non-zero value to either element immediately triggers the corresponding move.
+         */
+        INDI::PropertyNumber ManualAdjustmentNP {2};
 
     private:
         DefaultDevice *m_DefaultDevice { nullptr };
