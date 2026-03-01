@@ -239,15 +239,15 @@ static std::string GetHomeDirectory()
 #define NICK_ATTR_DRV "driver"
 #define NICK_ATTR_ID "identifier"
 
-const char *LoadINDINicknamesXML()
+int LoadINDINicknamesXML()
 {
     const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
-    // mNicknames.clear(); // TODO
+    mNicknames.clear();
 
     LilXML *lp = newLilXML();
     XMLEle *NickXmlRoot = nullptr;
     static char errmsg[512];
-    memset(errmsg, 0, sizeof(errmsg)); // Clear each run
+    memset(errmsg, 0, sizeof(errmsg)); // Clear anything from prior run
     FILE *fp = fopen(filename.c_str(), "r");
     if (fp)
     {
@@ -257,26 +257,18 @@ const char *LoadINDINicknamesXML()
     delLilXML(lp);
 
     if (!NickXmlRoot || errmsg[0]) {
-        return errmsg;
+        return 1;
     }
 
     if (strcmp(tagXMLEle(NickXmlRoot), NICK_ROOT) != 0) {
+        // Root is not <INDINicknames>, invalid file
         delXMLEle(NickXmlRoot);
-        return 0;
+        return 1;
     }
 
-    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1); // <INDINicknames> tag
-
-    if (!nickxml) {
-        return 0;
-    }
-
-    if (!strcmp(tagXMLEle(nickxml), NICK_ROOT)) {
-        delXMLEle(nickxml);
-        return 0;
-    }
-
-    for (; nickxml != NULL; nickxml = nextXMLEle(NickXmlRoot, 0)) {
+    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1);
+    for (; nickxml != NULL; nickxml = nextXMLEle(NickXmlRoot, 0))
+    {
         // Skip non <nickname> tags
         if (strcmp(tagXMLEle(nickxml), NICK_ENTRY))
             continue;
@@ -297,7 +289,7 @@ const char *LoadINDINicknamesXML()
             trim(sId);
             trim(sVal);
             if (!sId.empty() && !sVal.empty())
-                // mNicknames[sId] = sVal; // TODO
+                mNicknames[sId] = sVal;
         }
     }
 
@@ -307,7 +299,14 @@ const char *LoadINDINicknamesXML()
     return 0;
 }
 
-const char *SaveINDINicknamesXML()
+/**
+ * @brief Save Nickname data to XML.
+ *
+ * This needs to re-read the XML file in case other devices wrote data since it was last read.
+ * First read the whole file, find entry for this driver (if exists), create if not.
+ * Clear old and add new entries for nicknames from mNickname map.
+ */
+int SaveINDINicknamesXML()
 {
     const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
 
@@ -315,40 +314,63 @@ const char *SaveINDINicknamesXML()
     XMLEle *NickXmlRoot = nullptr;
     XMLEle *nickxml = nullptr;
     char errmsg[512] = {0};
-    FILE *fp = fopen(filename.c_str(), "r");
+    FILE *fp = fopen(filename.c_str(), "r+");
     if (fp)
     {
         NickXmlRoot = readXMLFile(fp, lp, errmsg);
-        fclose(fp);
     }
 
     if (!NickXmlRoot) // empty file, make new root node
         NickXmlRoot = addXMLEle(nullptr, NICK_ROOT);
 
-    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1); // <INDINicknames> tag
+    const std::string drvname{getDefaultName()};
 
-    if (!nickxml)
-        return "Empty Nickname file";
-    const std::string filename = GetHomeDirectory() + NICKNAME_FILE;
-    XMLEle *rootXmlNode = nullptr;
-    XMLEle *oneElement = nullptr;
+    std::cout << "Read XML in Save. driver = " << drvname << std::endl;
 
-    FILE *file = fopen(filename.c_str(), "w");
-
-    rootXmlNode = addXMLEle(nullptr, ROOTNODE);
-
-    for (const auto &kv : mNicknames)
+    // Remove all elements matching current driver
+    nickxml = nextXMLEle(NickXmlRoot, 1);
+    int idx = 0;
+    // If deleting an element, the pointer will still be non-null, so check
+    // number of elements too
+    while (nickxml != nullptr && idx < nXMLEle(NickXmlRoot))
     {
-        oneElement = addXMLEle(rootXmlNode, ENTRYNODE);
-        addXMLAtt(oneElement, ATTRIBUTE, kv.first.c_str());
-        editXMLEle(oneElement, kv.second.c_str());
+        std::cout << "Iterating idx = " << idx << std::endl;
+        // find driver= attr
+        const char *drv = findXMLAttValu(nickxml, NICK_ATTR_DRV);
+        if (!strcmp(tagXMLEle(nickxml), NICK_ENTRY)
+         && drv != nullptr && drvname == drv)
+        {
+            std::cout << "Deleting idx=" << idx << std::endl;
+            // Remove all entries matching this driver
+            delXMLEle(nickxml);
+            nickxml = nextXMLEle(NickXmlRoot, 1);
+            idx = 0;
+        }
+        else
+        {
+            std::cout << "Next Ele idx=" << idx << std::endl;
+            nickxml = nextXMLEle(NickXmlRoot, 0);
+            idx++;
+        }
     }
 
-    prXMLEle(file, rootXmlNode, 0);
-    fclose(file);
-    delXMLEle(rootXmlNode);
+    std::cout << "Done removing, count = " << nXMLEle(NickXmlRoot) << "\n";
+    for (const auto &kv : mNicknames)
+    {
+        nickxml = addXMLEle(NickXmlRoot, NICK_ENTRY);
+        addXMLAtt(nickxml, NICK_ATTR_DRV, drvname.c_str());
+        addXMLAtt(nickxml, NICK_ATTR_ID, kv.first.c_str());
+        editXMLEle(nickxml, kv.second.c_str());
+    }
+
+    // Reopen for writng and truncate file
+    fp = freopen(filename.c_str(), "w", fp);
+    prXMLEle(fp, NickXmlRoot, 0);
+    fclose(fp);
+    delXMLEle(NickXmlRoot);
 
     delLilXML(lp);
+    return 0;
 }
 
 } // namespace
