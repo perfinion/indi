@@ -88,9 +88,10 @@ static std::string GetHomeDirectory()
  */
 
 #define NICKNAME_FILE "/.indi/Nicknames.xml"
-#define NICK_ROOT "INDINicknames"
-#define NICK_ENTRY "nickname"
-#define NICK_ATTR_DRV "driver"
+#define NICK_TAG_ROOT "INDINicknames"
+#define NICK_TAG_DEVICE "device"
+#define NICK_ATTR_NAME "name"
+#define NICK_TAG_ENTRY "nickname"
 #define NICK_ATTR_ID "identifier"
 
 std::string stringXMLEle(XMLEle *ep)
@@ -121,6 +122,8 @@ const char *LoadINDINicknamesXML()
     }
     delLilXML(lp);
 
+    // NickXmlRoot is the root root tag, it's name is INDINickname
+    // iterating that one gives the other tags
     if (!NickXmlRoot || errmsg[0]) {
         std::cout << "Invalid NickXmlRoot: " << NickXmlRoot << std::endl;
         std::cout << "errmsg: " << errmsg << std::endl;
@@ -130,64 +133,84 @@ const char *LoadINDINicknamesXML()
     std::cout << "INDINicknames tag: " << tagXMLEle(NickXmlRoot) << std::endl;
     std::cout << "INDINicknames tag:===========\n" << stringXMLEle(NickXmlRoot) << "\n=============\n";
 
-    if (strcmp(tagXMLEle(NickXmlRoot), NICK_ROOT) != 0) {
+    if (strcmp(tagXMLEle(NickXmlRoot), NICK_TAG_ROOT) != 0) {
         delXMLEle(NickXmlRoot);
         std::cout << "Not an INDI Nickname file\n";
         return 0;
     }
 
-    XMLEle *nickxml = nextXMLEle(NickXmlRoot, 1); // <INDINicknames> tag
+    // children of top level INDINicknames
+    // This should be <device>
+    XMLEle *devicexml = nextXMLEle(NickXmlRoot, 1);
 
-    if (!nickxml) {
-        std::cout << "Empty Nickname file\n";
+    if (!devicexml) {
+        std::cout << "no children under INDINicknames\n";
         return 0;
     }
 
-    // std::cout << "Nickname tag: " << stringXMLEle(nickxml);
-    std::cout << "Nickname tag: " << tagXMLEle(nickxml);
+    // std::cout << "Nickname tag: " << stringXMLEle(devicexml);
+    std::cout << "device tag: " << tagXMLEle(devicexml) << std::endl;
 
-    if (!strcmp(tagXMLEle(nickxml), NICK_ROOT)) {
-        delXMLEle(nickxml);
+    if (!strcmp(tagXMLEle(devicexml), NICK_TAG_ROOT)) {
+        delXMLEle(devicexml);
         std::cout << "Not an INDI Nickname file\n";
         return 0;
     }
 
-    std::cout << "Start Iterating\n";
+    std::cout << "Start Iterating <device>\n";
+    XMLEle *nickxml = nullptr;
 
-    for (; nickxml != NULL; nickxml = nextXMLEle(NickXmlRoot, 0)) {
-        // Skip non <nickname> tags
-        if (strcmp(tagXMLEle(nickxml), NICK_ENTRY))
+    for (; devicexml != NULL; devicexml = nextXMLEle(NickXmlRoot, 0))
+    {
+        // Skip non <device> tags
+        if (strcmp(tagXMLEle(devicexml), NICK_TAG_DEVICE))
         {
-            printf("Skipping XML Non-Nickname: %s\n", tagXMLEle(nickxml));
+            printf("Skipping XML Non-Device: %s\n", tagXMLEle(devicexml));
             continue;
         }
 
-        // find driver= attr
-        const char *drv = findXMLAttValu(nickxml, NICK_ATTR_DRV);
+        // find name= attr
+        const char *devname = findXMLAttValu(devicexml, NICK_ATTR_NAME);
         // skip other drivers
-        if (!drv || strcmp(drv, getDefaultName()))
+        if (!devname || strcmp(devname, getDefaultName()))
         {
-            printf("Skipping XML driver: %s\n", drv);
+            printf("Skipping XML driver: %s\n", devname);
+            continue;
+        }
+
+        // Found <device name= matching the current driver
+        nickxml = nextXMLEle(devicexml, 1);
+        break;
+    }
+
+    for (; nickxml != NULL; nickxml = nextXMLEle(devicexml, 0))
+    {
+        // Skip non <nickname> tags
+        if (strcmp(tagXMLEle(nickxml), NICK_TAG_ENTRY))
+        {
+            printf("Skipping XML Non-Nickname: %s\n", tagXMLEle(devicexml));
             continue;
         }
 
         // find identifier= attr
         const char *pId = findXMLAttValu(nickxml, NICK_ATTR_ID);
         const char *pVal = pcdataXMLEle(nickxml);
-
         if (pId && pVal)
         {
             std::string sId{pId}, sVal{pVal}; // deep copy
             trim(sId);
             trim(sVal);
             if (!sId.empty() && !sVal.empty())
+            {
                 nickmap[sId] = sVal;
                 std::cout << " * ID: " << sId << " Val: " << sVal << std::endl;
+            }
         }
     }
     std::cout << "Finished Iterating" << std::endl;
 
     delXMLEle(nickxml);
+    delXMLEle(devicexml);
     delXMLEle(NickXmlRoot);
 
     mNicknames = nickmap;
@@ -208,7 +231,7 @@ int SaveINDINicknamesXML()
 
     LilXML *lp = newLilXML();
     XMLEle *NickXmlRoot = nullptr;
-    XMLEle *nickxml = nullptr;
+    XMLEle *devicexml = nullptr;
     char errmsg[512] = {0};
     FILE *fp = fopen(filename.c_str(), "r+");
     if (fp)
@@ -217,45 +240,70 @@ int SaveINDINicknamesXML()
     }
 
     if (!NickXmlRoot) // empty file, make new root node
-        NickXmlRoot = addXMLEle(nullptr, NICK_ROOT);
+        NickXmlRoot = addXMLEle(nullptr, NICK_TAG_ROOT);
 
     const std::string drvname{getDefaultName()};
 
     std::cout << "Read XML in Save. driver = " << drvname << std::endl;
+    XMLEle *nickxml = nullptr;
+
+    for (; devicexml != NULL; devicexml = nextXMLEle(NickXmlRoot, 0))
+    {
+        // Skip non <device> tags
+        if (strcmp(tagXMLEle(devicexml), NICK_TAG_DEVICE))
+        {
+            printf("Skipping XML Non-Device: %s\n", tagXMLEle(devicexml));
+            continue;
+        }
+
+        // find name= attr
+        const char *devname = findXMLAttValu(devicexml, NICK_ATTR_NAME);
+        // skip other drivers
+        if (!devname || strcmp(devname, getDefaultName()))
+        {
+            printf("Skipping XML driver: %s\n", devname);
+            continue;
+        }
+
+        // Found <device name= matching the current driver
+        nickxml = nextXMLEle(devicexml, 1);
+        break;
+    }
 
     // Remove all elements matching current driver
-    nickxml = nextXMLEle(NickXmlRoot, 1);
+    devicexml = nextXMLEle(NickXmlRoot, 1);
     int idx = 0;
     // If deleting an element, the pointer will still be non-null, so check
     // number of elements too
-    while (nickxml != nullptr && idx < nXMLEle(NickXmlRoot))
+    while (devicexml != nullptr && idx < nXMLEle(NickXmlRoot))
     {
         std::cout << "Iterating idx = " << idx << std::endl;
         // find driver= attr
-        const char *drv = findXMLAttValu(nickxml, NICK_ATTR_DRV);
-        if (!strcmp(tagXMLEle(nickxml), NICK_ENTRY)
+        const char *drv = findXMLAttValu(devicexml, NICK_ATTR_NAME);
+        if (!strcmp(tagXMLEle(devicexml), NICK_TAG_ENTRY)
          && drv != nullptr && drvname == drv)
         {
             std::cout << "Deleting idx=" << idx << std::endl;
             // Remove all entries matching this driver
-            delXMLEle(nickxml);
-            nickxml = nextXMLEle(NickXmlRoot, 1);
+            delXMLEle(devicexml);
+            devicexml = nextXMLEle(NickXmlRoot, 1);
             idx = 0;
         }
         else
         {
             std::cout << "Next Ele idx=" << idx << std::endl;
-            nickxml = nextXMLEle(NickXmlRoot, 0);
+            devicexml = nextXMLEle(NickXmlRoot, 0);
             idx++;
         }
     }
+
 
     std::cout << "Done removing, count = " << nXMLEle(NickXmlRoot) << "\n";
     std::cout << "INDINicknames after removing :===========\n" << stringXMLEle(NickXmlRoot) << "\n=============\n";
     for (const auto &kv : mNicknames)
     {
-        nickxml = addXMLEle(NickXmlRoot, NICK_ENTRY);
-        addXMLAtt(nickxml, NICK_ATTR_DRV, drvname.c_str());
+        nickxml = addXMLEle(NickXmlRoot, NICK_TAG_ENTRY);
+        addXMLAtt(nickxml, NICK_ATTR_NAME, drvname.c_str());
         addXMLAtt(nickxml, NICK_ATTR_ID, kv.first.c_str());
         editXMLEle(nickxml, kv.second.c_str());
     }
@@ -291,8 +339,8 @@ int main(int argc, char *argv[])
         std::cout << " - ID: " << kv.first << " Nick: " << kv.second << std::endl;
     }
     mNicknames["Hello"] = "World";
-    SaveINDINicknamesXML();
 
+    // SaveINDINicknamesXML();
 
     return 0;
 }
