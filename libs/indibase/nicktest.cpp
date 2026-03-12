@@ -232,21 +232,28 @@ int SaveINDINicknamesXML()
     LilXML *lp = newLilXML();
     XMLEle *NickXmlRoot = nullptr;
     XMLEle *devicexml = nullptr;
-    char errmsg[512] = {0};
+    XMLEle *nickxml = nullptr;
+    static char errmsg[512];
+    memset(errmsg, 0, sizeof(errmsg)); // Clear each run
     FILE *fp = fopen(filename.c_str(), "r+");
     if (fp)
     {
         NickXmlRoot = readXMLFile(fp, lp, errmsg);
     }
 
+    // NickXmlRoot is the root <INDINickname> tag
     if (!NickXmlRoot) // empty file, make new root node
         NickXmlRoot = addXMLEle(nullptr, NICK_TAG_ROOT);
 
-    const std::string drvname{getDefaultName()};
+    if (strcmp(tagXMLEle(NickXmlRoot), NICK_TAG_ROOT) != 0) {
+        // Unexpected tag, clear and make new
+        delXMLEle(NickXmlRoot);
+        NickXmlRoot = addXMLEle(nullptr, NICK_TAG_ROOT);
+    }
 
-    std::cout << "Read XML in Save. driver = " << drvname << std::endl;
-    XMLEle *nickxml = nullptr;
-
+    // children of top level INDINicknames
+    // This should be <device>
+    devicexml = nextXMLEle(NickXmlRoot, 1);
     for (; devicexml != NULL; devicexml = nextXMLEle(NickXmlRoot, 0))
     {
         // Skip non <device> tags
@@ -259,61 +266,46 @@ int SaveINDINicknamesXML()
         // find name= attr
         const char *devname = findXMLAttValu(devicexml, NICK_ATTR_NAME);
         // skip other drivers
-        if (!devname || strcmp(devname, getDefaultName()))
+        if (devname && strcmp(devname, getDefaultName()) == 0)
         {
-            printf("Skipping XML driver: %s\n", devname);
-            continue;
+            // Found <device name= matching the current driver
+            nickxml = nextXMLEle(devicexml, 1);
+            break;
         }
-
-        // Found <device name= matching the current driver
-        nickxml = nextXMLEle(devicexml, 1);
-        break;
     }
 
-    // Remove all elements matching current driver
-    devicexml = nextXMLEle(NickXmlRoot, 1);
-    int idx = 0;
-    // If deleting an element, the pointer will still be non-null, so check
-    // number of elements too
-    while (devicexml != nullptr && idx < nXMLEle(NickXmlRoot))
+    if (!devicexml)
     {
-        std::cout << "Iterating idx = " << idx << std::endl;
-        // find driver= attr
-        const char *drv = findXMLAttValu(devicexml, NICK_ATTR_NAME);
-        if (!strcmp(tagXMLEle(devicexml), NICK_TAG_ENTRY)
-         && drv != nullptr && drvname == drv)
-        {
-            std::cout << "Deleting idx=" << idx << std::endl;
-            // Remove all entries matching this driver
-            delXMLEle(devicexml);
-            devicexml = nextXMLEle(NickXmlRoot, 1);
-            idx = 0;
-        }
-        else
-        {
-            std::cout << "Next Ele idx=" << idx << std::endl;
-            devicexml = nextXMLEle(NickXmlRoot, 0);
-            idx++;
-        }
+        // No entry found for current driver, add empty
+        devicexml = addXMLEle(NickXmlRoot, NICK_TAG_DEVICE);
+        addXMLAtt(devicexml, NICK_ATTR_NAME, getDefaultName());
     }
 
+    // Remove all nicknames in current driver section
+    while ((nickxml = nextXMLEle(devicexml, 1)) != 0)
+    {
+        delXMLEle(nickxml);
+        nickxml = nullptr;
+    }
 
     std::cout << "Done removing, count = " << nXMLEle(NickXmlRoot) << "\n";
     std::cout << "INDINicknames after removing :===========\n" << stringXMLEle(NickXmlRoot) << "\n=============\n";
     for (const auto &kv : mNicknames)
     {
-        nickxml = addXMLEle(NickXmlRoot, NICK_TAG_ENTRY);
-        addXMLAtt(nickxml, NICK_ATTR_NAME, drvname.c_str());
+        nickxml = addXMLEle(devicexml, NICK_TAG_ENTRY);
         addXMLAtt(nickxml, NICK_ATTR_ID, kv.first.c_str());
         editXMLEle(nickxml, kv.second.c_str());
     }
 
     // Reopen for writng and truncate file
     fp = freopen(filename.c_str(), "w", fp);
-    prXMLEle(fp, NickXmlRoot, 0);
-    fclose(fp);
-    delXMLEle(NickXmlRoot);
+    if (fp)
+    {
+        prXMLEle(fp, NickXmlRoot, 0);
+        fclose(fp);
+    }
 
+    delXMLEle(NickXmlRoot);
     delLilXML(lp);
     return 0;
 }
@@ -340,7 +332,7 @@ int main(int argc, char *argv[])
     }
     mNicknames["Hello"] = "World";
 
-    // SaveINDINicknamesXML();
+    SaveINDINicknamesXML();
 
     return 0;
 }
